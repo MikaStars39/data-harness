@@ -6,13 +6,13 @@ set -euo pipefail
 # 2) bash recipe/thinking_to_cot/run_deepseek_v32_convert.sh
 export FLASHINFER_DISABLE_VERSION_CHECK=1
 
-RAW_SOURCE_JSONL=/mnt/llm-train/users/explore-train/qingyu/data/251230-nankai-filtered_16384_100.jsonl
-OUTPUT_DIR=/mnt/llm-train/users/explore-train/qingyu/data-harness/output/251230-nankai-filtered_16384/
-MODEL_PATH=/mnt/llm-train/users/explore-train/qingyu/.cache/DeepSeek-V3.2/DeepSeek-V3.2
+RAW_SOURCE_JSONL=/jpfs/qingyu/data/all.jsonl
+OUTPUT_DIR=/jpfs/qingyu/data/all_output.jsonl
+MODEL_PATH=/jpfs/models/DeepSeek-V3.2
 
 ENGINE_TYPE="online"
 API_KEY="your-api-key-here"
-BASE_URL="your-base-url-here"
+BASE_URL="http://11.48.241.174:30000/v1"
 PREPROCESS_WORKERS=8
 PREPROCESS_CHUNKSIZE=512
 
@@ -41,11 +41,12 @@ python recipe/thinking_to_cot/deepseek_v32_convert.py \
   --max-inflight 1024 \
   --temperature 1 \
   --top-p 0.95 \
-  --max-new-tokens 100000 \
+  --max-new-tokens 65536 \
   --apply-chat-template \
   --engine-type "$ENGINE_TYPE" \
   --api-key "$API_KEY" \
   --base-url "$BASE_URL" \
+  --no-apply-chat-template \
   --resume
 
 echo "Done. Final output: $FINAL_JSONL"

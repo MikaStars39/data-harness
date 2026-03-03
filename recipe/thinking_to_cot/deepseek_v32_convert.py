@@ -103,17 +103,10 @@ def _first_nonempty(data: Dict[str, Any], keys: Iterable[str]) -> str:
     return ""
 
 
-def _detect_language(text: str) -> str:
-    chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
-    ascii_letters = len(re.findall(r"[A-Za-z]", text))
-    return "zh" if chinese_chars >= ascii_letters else "en"
-
-
 def _build_convert_prompt(
     question: str,
     thinking: str,
     answer: str,
-    language: str,
 ) -> str:
     answer_block = answer if answer else "(No final answer provided in source.)"
     question_block = question if question else "(No user question provided in source.)"
@@ -124,7 +117,7 @@ def _build_convert_prompt(
         "You are an expert data rewriter.\n"
         "You convert a `thinking model trace` into explicit chain-of-thought for non-thinking model data.\n\n"
         "Requirements:\n"
-        f"1) Language consistency is mandatory: output `cot` **matching the source language**.\n"
+        "1) Language consistency is mandatory: output `cot` following the source response language.\n"
         "2) Preserve details and do not over-compress. Keep all key steps, derivations, checks, and transitions.\n"
         f"3) Length constraint: `cot` must be at least {min_chars} characters (source thinking length={source_chars}).\n"
         "4) Prefer explicit step-by-step structure (e.g., Step 1/Step 2) and keep equations/calculations complete.\n"
@@ -177,31 +170,34 @@ def prepare_input_jsonl(
             except json.JSONDecodeError:
                 continue
 
-            thinking = _first_nonempty(item, THINKING_KEYS)
-            if not thinking:
-                continue
-
-            question = _first_nonempty(item, QUESTION_KEYS)
-            answer = _first_nonempty(item, ANSWER_KEYS)
-            detected_language = _detect_language(f"{question}\n{thinking}")
             item_id = str(item.get("id", f"line-{idx}"))
-            raw_prompt = _build_convert_prompt(
-                question=question,
-                thinking=thinking,
-                answer=answer,
-                language=detected_language,
-            )
+            raw_prompt = item.get("prompt")
+            meta = item.get("_meta") if isinstance(item.get("_meta"), dict) else {}
+
+            # Fast path: preprocessing already prepared prompt and meta.
+            if not isinstance(raw_prompt, str) or not raw_prompt.strip():
+                thinking = _first_nonempty(item, THINKING_KEYS)
+                if not thinking:
+                    continue
+                question = _first_nonempty(item, QUESTION_KEYS)
+                answer = _first_nonempty(item, ANSWER_KEYS)
+                raw_prompt = _build_convert_prompt(
+                    question=question,
+                    thinking=thinking,
+                    answer=answer,
+                )
+                meta = {
+                    "question": question,
+                    "source_answer": answer,
+                    "source_thinking_chars": len(thinking),
+                }
+
             prompt = prompt_formatter(raw_prompt) if prompt_formatter else raw_prompt
 
             payload = {
                 "id": item_id,
                 "prompt": prompt,
-                "_meta": {
-                    "question": question,
-                    "source_answer": answer,
-                    "language": detected_language,
-                    "source_thinking_chars": len(thinking),
-                },
+                "_meta": meta,
             }
             fout.write(json.dumps(payload, ensure_ascii=False) + "\n")
             valid += 1

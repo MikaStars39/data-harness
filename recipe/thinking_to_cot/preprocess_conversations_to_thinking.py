@@ -20,6 +20,33 @@ THOUGHT_PATTERN = re.compile(
 )
 
 
+def _build_convert_prompt(question: str, thinking: str, answer: str) -> str:
+    answer_block = answer if answer else "(No final answer provided in source.)"
+    question_block = question if question else "(No user question provided in source.)"
+    source_chars = len(thinking)
+    min_chars = max(200, int(source_chars * 0.90))
+    return (
+        "You are an expert data rewriter.\n"
+        "You convert a `thinking model trace` into explicit chain-of-thought for non-thinking model data.\n\n"
+        "Requirements:\n"
+        "1) Language consistency is mandatory: output `cot` following the source response language.\n"
+        "2) Preserve details and do not over-compress. Keep all key steps, derivations, checks, and transitions.\n"
+        f"3) Length constraint: `cot` must be at least {min_chars} characters (source thinking length={source_chars}).\n"
+        "4) Prefer explicit step-by-step structure (e.g., Step 1/Step 2) and keep equations/calculations complete.\n"
+        "5) Remove only obvious model self-talk or duplicate loops. Do not drop useful reasoning content.\n"
+        "6) Ensure consistency with the final answer when provided. Both `cot` and `final_answer` must be completely populated without truncation.\n"
+        "7) Output ONLY valid JSON.\n\n"
+        "Output schema:\n"
+        "{\n"
+        "  \"cot\": \"<long explicit step-by-step chain-of-thought, e.g., Step 1, Step 2...>\",\n"
+        "  \"final_answer\": \"<complete final answer, e.g., boxed result>\"\n"
+        "}\n\n"
+        f"Question:\n{question_block}\n\n"
+        f"Original thinking trace:\n{thinking}\n\n"
+        f"Reference final answer:\n{answer_block}\n"
+    )
+
+
 def _safe_json_loads(line: str) -> Optional[Dict[str, Any]]:
     try:
         if orjson is not None:
@@ -93,6 +120,12 @@ def _process_line_for_normalize(task: Tuple[int, str]) -> Optional[Dict[str, Any
     sample["question"] = question
     sample["thinking"] = thinking
     sample["final_answer"] = final_answer
+    sample["prompt"] = _build_convert_prompt(question=question, thinking=thinking, answer=final_answer)
+    sample["_meta"] = {
+        "question": question,
+        "source_answer": final_answer,
+        "source_thinking_chars": len(thinking),
+    }
     return sample
 
 

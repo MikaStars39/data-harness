@@ -119,13 +119,12 @@ def _build_convert_prompt(
     question_block = question if question else "(No user question provided in source.)"
     source_chars = len(thinking)
     min_chars = max(200, int(source_chars * 0.90))
-    lang_instruction = "Chinese" if language == "zh" else "English"
 
     return (
         "You are an expert data rewriter.\n"
         "You convert a `thinking model trace` into explicit chain-of-thought for non-thinking model data.\n\n"
         "Requirements:\n"
-        f"1) Language consistency is mandatory: output `cot` in {lang_instruction}, matching the source language.\n"
+        f"1) Language consistency is mandatory: output `cot` **matching the source language**.\n"
         "2) Preserve details and do not over-compress. Keep all key steps, derivations, checks, and transitions.\n"
         f"3) Length constraint: `cot` must be at least {min_chars} characters (source thinking length={source_chars}).\n"
         "4) Prefer explicit step-by-step structure (e.g., Step 1/Step 2) and keep equations/calculations complete.\n"
@@ -237,10 +236,46 @@ def _parse_model_response(raw_text: str) -> Dict[str, str]:
     return {"cot": cleaned, "final_answer": ""}
 
 
-def merge_output(prepared_jsonl: Path, model_output_jsonl: Path, final_jsonl: Path) -> int:
+def _compose_assistant_response(cot: str, final_answer: str) -> str:
+    cot_text = (cot or "").strip()
+    answer_text = (final_answer or "").strip()
+    if cot_text and answer_text:
+        return f"{cot_text}\n\n{answer_text}"
+    return cot_text or answer_text
+
+
+def _replace_last_assistant_message(
+    conversations: Any,
+    rewritten_text: str,
+) -> list:
+    conv_list = conversations if isinstance(conversations, list) else []
+    copied = [dict(msg) if isinstance(msg, dict) else msg for msg in conv_list]
+    for idx in range(len(copied) - 1, -1, -1):
+        msg = copied[idx]
+        if not isinstance(msg, dict):
+            continue
+        role = str(msg.get("from", "")).strip().lower()
+        if role in {"gpt", "assistant"}:
+            msg["value"] = rewritten_text
+            return copied
+
+    copied.append({"from": "gpt", "value": rewritten_text})
+    return copied
+
+
+def merge_output(source_jsonl: Path, prepared_jsonl: Path, model_output_jsonl: Path, final_jsonl: Path) -> int:
     final_jsonl.parent.mkdir(parents=True, exist_ok=True)
     prepared_map: Dict[str, Dict[str, Any]] = {}
+    source_map: Dict[str, Dict[str, Any]] = {}
     written = 0
+
+    with source_jsonl.open("r", encoding="utf-8") as fin:
+        for idx, line in enumerate(fin):
+            if not line.strip():
+                continue
+            item = json.loads(line)
+            item_id = str(item.get("id", f"line-{idx}"))
+            source_map[item_id] = item
 
     with prepared_jsonl.open("r", encoding="utf-8") as fin:
         for line in fin:
@@ -258,14 +293,22 @@ def merge_output(prepared_jsonl: Path, model_output_jsonl: Path, final_jsonl: Pa
             base_item = prepared_map.get(item_id, {})
             parsed = _parse_model_response(item.get("response", ""))
             meta = base_item.get("_meta", {})
+            source_item = source_map.get(item_id, {})
 
-            output = {
-                "id": item_id,
-                "question": meta.get("question", ""),
-                "cot": parsed["cot"],
-                "final_answer": parsed["final_answer"] or meta.get("source_answer", ""),
-                "raw_response": item.get("response", ""),
-            }
+            final_answer = parsed["final_answer"] or meta.get("source_answer", "")
+            rewritten_text = _compose_assistant_response(parsed["cot"], final_answer)
+
+            output = dict(source_item) if isinstance(source_item, dict) else {"id": item_id}
+            output["id"] = item_id
+            output["conversations"] = _replace_last_assistant_message(
+                output.get("conversations"),
+                rewritten_text,
+            )
+
+            # Keep structured fields for audit/debug while preserving final conversation shape.
+            output["dsv32_solution_content"] = final_answer
+            output["dsv32_reasoning_content"] = parsed["cot"]
+            output["raw_response"] = item.get("response", "")
             fout.write(json.dumps(output, ensure_ascii=False) + "\n")
             written += 1
 
@@ -411,7 +454,7 @@ def main():
             base_url=args.base_url,
         )
     )
-    merged = merge_output(prepared_jsonl, model_output_jsonl, final_jsonl)
+    merged = merge_output(source_jsonl, prepared_jsonl, model_output_jsonl, final_jsonl)
     print(f"[merge] written={merged}, output={final_jsonl}")
 
 

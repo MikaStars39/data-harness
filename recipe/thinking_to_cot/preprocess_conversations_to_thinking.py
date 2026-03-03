@@ -45,7 +45,9 @@ def _extract_thinking_and_answer(assistant_text: str) -> Tuple[str, str]:
     )
     match = pattern.search(assistant_text)
     if not match:
-        return "", assistant_text.strip()
+        # Fallback for plain single-turn dialogs without thought tags.
+        plain_text = assistant_text.strip()
+        return plain_text, plain_text
 
     thinking = match.group(1).strip()
     final_answer = assistant_text[match.end() :].strip()
@@ -78,12 +80,13 @@ def normalize_raw_jsonl(raw_jsonl: Path, normalized_jsonl: Path) -> Tuple[int, i
                 continue
 
             sample_id = sample.get("id", sample.get("index", f"line-{line_idx}"))
-            output = {
-                "id": str(sample_id),
-                "question": question,
-                "thinking": thinking,
-                "final_answer": final_answer,
-            }
+            # Keep the original sample structure so the final merge can write back
+            # into the original single-turn conversation format.
+            output = dict(sample)
+            output["id"] = str(sample_id)
+            output["question"] = question
+            output["thinking"] = thinking
+            output["final_answer"] = final_answer
             fout.write(json.dumps(output, ensure_ascii=False) + "\n")
             written += 1
 

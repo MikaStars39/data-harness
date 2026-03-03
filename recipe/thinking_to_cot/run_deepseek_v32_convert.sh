@@ -13,6 +13,8 @@ MODEL_PATH=/mnt/llm-train/users/explore-train/qingyu/.cache/DeepSeek-V3.2/DeepSe
 ENGINE_TYPE="online"
 API_KEY="your-api-key-here"
 BASE_URL="your-base-url-here"
+PREPROCESS_WORKERS=8
+PREPROCESS_CHUNKSIZE=512
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -23,7 +25,9 @@ FINAL_JSONL="$OUTPUT_DIR/thinking_to_cot.final.jsonl"
 
 python recipe/thinking_to_cot/preprocess_conversations_to_thinking.py \
   --raw-jsonl "$RAW_SOURCE_JSONL" \
-  --normalized-jsonl "$SOURCE_JSONL"
+  --normalized-jsonl "$SOURCE_JSONL" \
+  --workers "$PREPROCESS_WORKERS" \
+  --chunksize "$PREPROCESS_CHUNKSIZE"
 
 python recipe/thinking_to_cot/deepseek_v32_convert.py \
   --source-jsonl "$SOURCE_JSONL" \

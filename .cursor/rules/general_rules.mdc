@@ -1,0 +1,8 @@
+---
+alwaysApply: true
+---
+
+- Respond and explain strictly in Simplified Chinese.
+- ALL code comments and docstrings MUST be in English.
+- Add concise comments focusing on complex algorithmic logic or the "why"; omit obvious syntax explanations.
+- You are on a CPU machine, which I use k8s to connect to GPU node. So do not do complicated debug and run training. Let me do this.

@@ -327,6 +327,9 @@ async def run_inference(
     engine_type: str,
     api_key: str,
     base_url: str,
+    connector_limit: int,
+    limit_per_host: int,
+    writer_flush_every: int,
 ):
     sampling_params = {
         "temperature": temperature,
@@ -339,7 +342,10 @@ async def run_inference(
         config = APIConfig(
             api_key=api_key,
             base_url=base_url.rstrip('/'),
-            model=model_path
+            model=model_path,
+            connector_limit=max(0, connector_limit),
+            limit_per_host=max(0, limit_per_host),
+            writer_flush_every=max(1, writer_flush_every),
         )
         engine = OnlineBatchInferenceEngine(config, concurrency=max_inflight)
         # Note: online engine uses "max_tokens" instead of "max_new_tokens"
@@ -400,6 +406,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--engine-type", type=str, default="offline", choices=["offline", "online"], help="Inference engine to use.")
     parser.add_argument("--api-key", type=str, default="", help="API key for online engine.")
     parser.add_argument("--base-url", type=str, default="", help="Base URL for online engine.")
+    parser.add_argument("--connector-limit", type=int, default=0, help="Online aiohttp connector total socket limit.")
+    parser.add_argument("--limit-per-host", type=int, default=0, help="Online aiohttp per-host socket limit.")
+    parser.add_argument("--writer-flush-every", type=int, default=128, help="Online output writer flush interval.")
 
     return parser.parse_args()
 
@@ -448,6 +457,9 @@ def main():
             engine_type=args.engine_type,
             api_key=args.api_key,
             base_url=args.base_url,
+            connector_limit=args.connector_limit,
+            limit_per_host=args.limit_per_host,
+            writer_flush_every=args.writer_flush_every,
         )
     )
     merged = merge_output(source_jsonl, prepared_jsonl, model_output_jsonl, final_jsonl)

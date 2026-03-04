@@ -6,9 +6,8 @@ import os
 import sys
 import logging
 import argparse
-import signal
 from typing import Optional, List, Dict, Any, Set
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # Try to import tqdm
 try:
@@ -66,6 +65,9 @@ class APIConfig:
     model: str
     timeout: int = 6000
     max_retries: int = 500
+    connector_limit: int = 0
+    limit_per_host: int = 0
+    writer_flush_every: int = 128
 
 # ------------------------- Async HTTP Client ------------------------
 
@@ -79,7 +81,11 @@ class AsyncClient:
             "Authorization": f"Bearer {config.api_key}",
             "Content-Type": "application/json"
         }
-        self.connector = aiohttp.TCPConnector(limit=0, ttl_dns_cache=300)
+        self.connector = aiohttp.TCPConnector(
+            limit=config.connector_limit,
+            limit_per_host=config.limit_per_host,
+            ttl_dns_cache=300,
+        )
         self.session: Optional[aiohttp.ClientSession] = None
 
     async def __aenter__(self):
@@ -227,6 +233,8 @@ class OnlineBatchInferenceEngine:
     async def _writer(self, output_path: str, total: int):
         # Same as before: Queue -> File
         pbar = tqdm(total=total, desc="Processing", unit="req")
+        flush_every = max(1, int(self.api_config.writer_flush_every))
+        buffered = 0
         with open(output_path, 'a', encoding='utf-8') as f_out:
             while True:
                 result = await self.output_queue.get()
@@ -234,9 +242,14 @@ class OnlineBatchInferenceEngine:
                     self.output_queue.task_done()
                     break
                 f_out.write(json.dumps(result, ensure_ascii=False) + "\n")
-                f_out.flush()
+                buffered += 1
+                if buffered >= flush_every:
+                    f_out.flush()
+                    buffered = 0
                 pbar.update(1)
                 self.output_queue.task_done()
+            if buffered > 0:
+                f_out.flush()
         pbar.close()
 
     # ------------------------- Main Run Interface ------------------------
@@ -295,6 +308,9 @@ def main():
     parser.add_argument("--api-key", type=str, required=True, help="API Key")
     parser.add_argument("--base-url", type=str, required=True, help="API Base URL")
     parser.add_argument("--model", type=str, default="gpt-3.5-turbo")
+    parser.add_argument("--connector-limit", type=int, default=0, help="aiohttp connector total socket limit (0 means unlimited).")
+    parser.add_argument("--limit-per-host", type=int, default=0, help="aiohttp per-host socket limit (0 means unlimited).")
+    parser.add_argument("--writer-flush-every", type=int, default=128, help="Flush output file every N records.")
     
     # I/O Args
     parser.add_argument("--input", type=str, required=True)
@@ -342,7 +358,10 @@ def main():
     config = APIConfig(
         api_key=args.api_key,
         base_url=args.base_url.rstrip('/'),
-        model=args.model
+        model=args.model,
+        connector_limit=max(0, args.connector_limit),
+        limit_per_host=max(0, args.limit_per_host),
+        writer_flush_every=max(1, args.writer_flush_every),
     )
 
     engine = OnlineBatchInferenceEngine(config, concurrency=args.concurrency)

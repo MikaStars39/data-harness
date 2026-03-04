@@ -13,6 +13,10 @@ MODEL_PATH=/jpfs/models/DeepSeek-V3.2
 ENGINE_TYPE="online"
 API_KEY="your-api-key-here"
 BASE_URL="http://11.48.241.174:30000/v1"
+CONNECTOR_LIMIT=0
+LIMIT_PER_HOST=0
+WRITER_FLUSH_EVERY=256
+USE_CHAT_TEMPLATE="false"
 PREPROCESS_WORKERS=8
 PREPROCESS_CHUNKSIZE=512
 
@@ -42,11 +46,13 @@ python recipe/thinking_to_cot/deepseek_v32_convert.py \
   --temperature 1 \
   --top-p 0.95 \
   --max-new-tokens 65536 \
-  --apply-chat-template \
   --engine-type "$ENGINE_TYPE" \
   --api-key "$API_KEY" \
   --base-url "$BASE_URL" \
-  --no-apply-chat-template \
+  --connector-limit "$CONNECTOR_LIMIT" \
+  --limit-per-host "$LIMIT_PER_HOST" \
+  --writer-flush-every "$WRITER_FLUSH_EVERY" \
+  $([[ "$USE_CHAT_TEMPLATE" == "true" ]] && echo "--apply-chat-template" || echo "--no-apply-chat-template") \
   --resume
 
 echo "Done. Final output: $FINAL_JSONL"

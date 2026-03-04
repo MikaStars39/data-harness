@@ -19,6 +19,7 @@ WRITER_FLUSH_EVERY=256
 USE_CHAT_TEMPLATE="false"
 PREPROCESS_WORKERS=8
 PREPROCESS_CHUNKSIZE=512
+SKIP_PREPARE_ON_RESUME="true"
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -27,11 +28,13 @@ PREPARED_JSONL="$OUTPUT_DIR/thinking_to_cot.prepared.jsonl"
 MODEL_OUTPUT_JSONL="$OUTPUT_DIR/thinking_to_cot.model_output.jsonl"
 FINAL_JSONL="$OUTPUT_DIR/thinking_to_cot.final.jsonl"
 
-python recipe/thinking_to_cot/preprocess_conversations_to_thinking.py \
-  --raw-jsonl "$RAW_SOURCE_JSONL" \
-  --normalized-jsonl "$SOURCE_JSONL" \
-  --workers "$PREPROCESS_WORKERS" \
-  --chunksize "$PREPROCESS_CHUNKSIZE"
+if [[ "$SKIP_PREPARE_ON_RESUME" != "true" ]]; then
+  python recipe/thinking_to_cot/preprocess_conversations_to_thinking.py \
+    --raw-jsonl "$RAW_SOURCE_JSONL" \
+    --normalized-jsonl "$SOURCE_JSONL" \
+    --workers "$PREPROCESS_WORKERS" \
+    --chunksize "$PREPROCESS_CHUNKSIZE"
+fi
 
 python recipe/thinking_to_cot/deepseek_v32_convert.py \
   --source-jsonl "$SOURCE_JSONL" \
@@ -52,6 +55,7 @@ python recipe/thinking_to_cot/deepseek_v32_convert.py \
   --connector-limit "$CONNECTOR_LIMIT" \
   --limit-per-host "$LIMIT_PER_HOST" \
   --writer-flush-every "$WRITER_FLUSH_EVERY" \
+  $([[ "$SKIP_PREPARE_ON_RESUME" == "true" ]] && echo "--skip-prepare" || echo "") \
   $([[ "$USE_CHAT_TEMPLATE" == "true" ]] && echo "--apply-chat-template" || echo "--no-apply-chat-template") \
   --resume
 

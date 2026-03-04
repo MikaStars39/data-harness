@@ -401,6 +401,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--resume", action="store_true", help="Resume from existing model output file.")
     parser.add_argument("--prepare-only", action="store_true", help="Only build prepared JSONL and exit.")
+    parser.add_argument(
+        "--skip-prepare",
+        action="store_true",
+        help="Skip prepare stage and reuse existing prepared JSONL.",
+    )
     
     # Online Engine args
     parser.add_argument("--engine-type", type=str, default="offline", choices=["offline", "online"], help="Inference engine to use.")
@@ -422,23 +427,35 @@ def main():
     model_output_jsonl = Path(args.model_output_jsonl)
     final_jsonl = Path(args.final_jsonl)
 
-    prompt_formatter: Optional[Callable[[str], str]] = None
-    if args.apply_chat_template:
-        template_model_path = args.chat_template_model_path or args.model_path
-        try:
-            prompt_formatter = _make_chat_formatter(template_model_path)
-            print(f"[prepare] chat template enabled with tokenizer={template_model_path}")
-        except Exception as exc:
-            print(f"[prepare] chat template unavailable ({exc}), fallback to raw prompt.")
+    if args.skip_prepare:
+        if not prepared_jsonl.exists():
+            raise FileNotFoundError(
+                f"--skip-prepare is set, but prepared file does not exist: {prepared_jsonl}"
+            )
+        total = 0
+        valid = 1  # Non-zero sentinel to allow inference.
+        print(f"[prepare] skipped, reusing existing prepared file: {prepared_jsonl}")
+        if args.prepare_only:
+            print("[prepare] --prepare-only with --skip-prepare: nothing to do.")
+            return
+    else:
+        prompt_formatter: Optional[Callable[[str], str]] = None
+        if args.apply_chat_template:
+            template_model_path = args.chat_template_model_path or args.model_path
+            try:
+                prompt_formatter = _make_chat_formatter(template_model_path)
+                print(f"[prepare] chat template enabled with tokenizer={template_model_path}")
+            except Exception as exc:
+                print(f"[prepare] chat template unavailable ({exc}), fallback to raw prompt.")
 
-    total, valid = prepare_input_jsonl(source_jsonl, prepared_jsonl, prompt_formatter=prompt_formatter)
-    print(f"[prepare] total={total}, valid_with_thinking={valid}, output={prepared_jsonl}")
+        total, valid = prepare_input_jsonl(source_jsonl, prepared_jsonl, prompt_formatter=prompt_formatter)
+        print(f"[prepare] total={total}, valid_with_thinking={valid}, output={prepared_jsonl}")
 
-    if args.prepare_only:
-        return
-    if valid == 0:
-        print("[run] no valid items to process, skip inference.")
-        return
+        if args.prepare_only:
+            return
+        if valid == 0:
+            print("[run] no valid items to process, skip inference.")
+            return
 
     asyncio.run(
         run_inference(

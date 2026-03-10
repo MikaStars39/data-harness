@@ -10,12 +10,7 @@ def _pick_shard(item_id: str, num_shards: int) -> int:
     return int(digest[:16], 16) % num_shards
 
 
-def split_jsonl(
-    source_jsonl: Path,
-    output_dir: Path,
-    num_shards: int,
-    shard_prefix: str,
-) -> Dict[str, int]:
+def split_jsonl(source_jsonl: Path, output_dir: Path, num_shards: int, shard_prefix: str) -> Dict[str, int]:
     output_dir.mkdir(parents=True, exist_ok=True)
     shard_paths = [output_dir / f"{shard_prefix}_{idx:05d}.jsonl" for idx in range(num_shards)]
     shard_counts = [0 for _ in range(num_shards)]
@@ -46,11 +41,7 @@ def split_jsonl(
         for f in files:
             f.close()
 
-    stats: Dict[str, int] = {
-        "total": total,
-        "written": written,
-        "invalid_json": invalid,
-    }
+    stats: Dict[str, int] = {"total": total, "written": written, "invalid_json": invalid}
     for idx, count in enumerate(shard_counts):
         stats[f"shard_{idx:05d}"] = count
     return stats
@@ -72,18 +63,10 @@ def main() -> None:
 
     source_jsonl = Path(args.source_jsonl)
     output_dir = Path(args.output_dir)
-    stats = split_jsonl(
-        source_jsonl=source_jsonl,
-        output_dir=output_dir,
-        num_shards=args.num_shards,
-        shard_prefix=args.shard_prefix,
-    )
-    print(
-        "[split] "
-        + ", ".join([f"{k}={v}" for k, v in stats.items()])
-        + f", output_dir={output_dir}"
-    )
+    stats = split_jsonl(source_jsonl=source_jsonl, output_dir=output_dir, num_shards=args.num_shards, shard_prefix=args.shard_prefix)
+    print("[split] " + ", ".join([f"{k}={v}" for k, v in stats.items()]) + f", output_dir={output_dir}")
 
 
 if __name__ == "__main__":
     main()
+

@@ -7,17 +7,6 @@ OUTPUT_DIR="/mnt/llm-train/users/explore-train/qingyu/data/dpo/yuqi_math_20k"
 JUDGE_MODEL="/mnt/llm-train/users/explore-train/qingyu/.cache/Qwen3-30B-A3B-Thinking-2507"
 SCRIPT_DIR="/mnt/llm-train/users/explore-train/qingyu/slimulation"
 
-python $SCRIPT_DIR/recipe/llm_judge/prepare_judge.py \
-    --input $INPUT_FILE \
-    --output "$OUTPUT_DIR/prepare.jsonl" \
-    --tokenizer $JUDGE_MODEL
-
-python $SCRIPT_DIR/recipe/llm_judge/shard_jsonl.py \
-    --input $OUTPUT_DIR/prepare.jsonl \
-    --output-dir "$OUTPUT_DIR/shards_16_yuqi_new_data" \
-    --num-shards 16 \
-    --num-readers 48
-
 # 1. 定义 Pod 列表 (按顺序排列，共16个)
 pods=(
     "dpo-data-0-6vd8m"
@@ -39,10 +28,10 @@ for i in "${!pods[@]}"; do
     echo "正在为 Pod [$pod_name] 分配任务: Shard $shard_id ..."
 
     # 使用 nohup 或后台运行模式执行，避免 kubectl 断开导致任务终止
-    kt exec $pod_name -- bash -c "pkill sglang && python /mnt/llm-train/users/explore-train/qingyu/slimulation/recipe/llm_judge/inference.py \
-        --input \"/mnt/llm-train/users/explore-train/qingyu/data/dpo/yuqi_math_20k/shards_16_yuqi_new_data/shard_${shard_id}.jsonl\" \
-        --output \"/mnt/llm-train/users/explore-train/qingyu/data/dpo/yuqi_math_20k/responses/response_${shard_id}.jsonl\" \
-        --model_path /mnt/llm-train/users/explore-train/qingyu/.cache/Qwen3-30B-A3B-Thinking-2507 \
+    kt exec $pod_name -- bash -c "pkill sglang && python $SCRIPT_DIR/recipe/llm_judge/inference.py \
+        --input \"$OUTPUT_DIR/shards_16_yuqi_new_data/shard_${shard_id}.jsonl\" \
+        --output \"$OUTPUT_DIR/responses/response_${shard_id}.jsonl\" \
+        --model_path $JUDGE_MODEL \
         --tp_size 1 \
         --dp_size 8 \
         --max_tokens 32768
@@ -51,14 +40,6 @@ for i in "${!pods[@]}"; do
     # 稍微等一秒，避免同时并发请求 kubectl API 过载
     sleep 1
 done
-
-python $SCRIPT_DIR/recipe/llm_judge/inference.py \
-    --input "$OUTPUT_DIR/prepare.jsonl" \
-    --output "$OUTPUT_DIR/response.jsonl" \
-    --model_path $JUDGE_MODEL \
-    --tp_size 1 \
-    --dp_size 8 \
-    --max_tokens 32768
 
 python $SCRIPT_DIR/recipe/llm_judge/merge_and_extract.py \
     --response-dir $OUTPUT_DIR/responses \
@@ -72,24 +53,3 @@ python $SCRIPT_DIR/recipe/llm_judge/analyze_best_worst.py \
 
 python $SCRIPT_DIR/recipe/llm_judge/analyze_scores.py \
     --scores $OUTPUT_DIR/final.jsonl
-
-# python $SCRIPT_DIR/recipe/llm_judge/extract_scores.py \
-#     --prepared $OUTPUT_DIR/prepare.jsonl \
-#     --response $OUTPUT_DIR/response.jcsonl \
-#     --output $OUTPUT_DIR/scores.jsonl \
-#     --failed $OUTPUT_DIR/failed.jsonl
-
-# # 1. 截取 100 条
-# head -n 100 /mnt/llm-train/users/explore-train/qingyu/data/dpo/shards_16/shard_0.jsonl > shard_test_small.jsonl
-
-# # 2. 运行推理测试
-# python /mnt/llm-train/users/explore-train/qingyu/slimulation/recipe/llm_judge/inference.py \
-#     --input shard_test_small.jsonl \
-#     --output shard_test_small_res.jsonl \
-#     --model_path "/mnt/llm-train/users/explore-train/qingyu/.cache/Qwen3-30B-A3B-Thinking-2507" \
-#     --tp_size 2 \
-#     --dp_size 4 \
-#     --max_concurrency 128 \
-#     --max_tokens 2048
-
-# #!/bin/bash

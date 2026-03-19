@@ -110,7 +110,7 @@ def process_line(line_data):
     
     results = []
     # Process each model output (blank_output_0 to blank_output_7, 8 outputs total)
-    for output_idx in range(8):
+    for output_idx in range(n_examples):
         output_key = f"blank_output_{output_idx}"
         model_answer = data.get(output_key, "")
         
@@ -150,7 +150,7 @@ def process_line(line_data):
     return results
 
 # ------ Data Processing Logic --------
-def prepare_judge_data(input_file, output_file, tokenizer_name, num_workers=None):
+def prepare_judge_data(input_file, output_file, tokenizer_name, num_workers=None, n_examples=8):
     """
     Converts data containing multiple model outputs into the format to be evaluated using multiprocessing.
     """
@@ -203,6 +203,7 @@ if __name__ == "__main__":
         description="Prepare LLM scoring data with multiprocessing",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    parser.add_argument("--n_examples", type=int, default=8, help="Number of examples to process")
     parser.add_argument("--input", required=True, help="Input JSONL file (containing conversations and blank_output_0-7)")
     parser.add_argument("--output", required=True, help="Output JSONL file (for LLM scoring)")
     parser.add_argument("--tokenizer", required=True, help="Tokenizer path")
@@ -210,5 +211,5 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    prepare_judge_data(args.input, args.output, args.tokenizer, args.workers)
+    prepare_judge_data(args.input, args.output, args.tokenizer, args.workers, args.n_examples)
     print(f"\n✅ [Preparation] Done! Evaluation data saved to: {args.output}")

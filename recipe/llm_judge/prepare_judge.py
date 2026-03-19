@@ -109,9 +109,9 @@ def process_line(line_data):
         return None
     
     results = []
-    # Process each model output (JoyAI_output_0 to JoyAI_output_3, only keep 4 outputs)
-    for output_idx in range(4):
-        output_key = f"JoyAI_output_{output_idx}"
+    # Process each model output (blank_output_0 to blank_output_7, 8 outputs total)
+    for output_idx in range(8):
+        output_key = f"blank_output_{output_idx}"
         model_answer = data.get(output_key, "")
         
         if not model_answer:
@@ -203,7 +203,7 @@ if __name__ == "__main__":
         description="Prepare LLM scoring data with multiprocessing",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--input", required=True, help="Input JSONL file (containing conversations and JoyAI_output_0-7)")
+    parser.add_argument("--input", required=True, help="Input JSONL file (containing conversations and blank_output_0-7)")
     parser.add_argument("--output", required=True, help="Output JSONL file (for LLM scoring)")
     parser.add_argument("--tokenizer", required=True, help="Tokenizer path")
     parser.add_argument("--workers", type=int, default=None, help="Number of worker processes (default: cpu_count - 2)")

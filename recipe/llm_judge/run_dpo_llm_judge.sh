@@ -1,55 +1,67 @@
 #!/bin/bash
 # LLM Judge Scoring System - Example Run Script
+# Usage: TRAINING_JOB_NAME=<job-name> ./run_dpo_llm_judge.sh
 
 # Configuration paths
-INPUT_FILE="/mnt/llm-train/users/explore-train/wangzhenfang8/codes/generate/data/math500_and_gsm8k/math500_and_gsm8k_roll_8.jsonl"
-OUTPUT_DIR="/mnt/llm-train/users/explore-train/qingyu/data/dpo/yuqi_math_20k"
-JUDGE_MODEL="/mnt/llm-train/users/explore-train/qingyu/.cache/Qwen3-30B-A3B-Thinking-2507"
-SCRIPT_DIR="/mnt/llm-train/users/explore-train/qingyu/slimulation"
+INPUT_FILE="/jpfs/qingyu/data/deploy-sft-128k-s2-0318-s2-fixswe-shuf-64-1e-5-min1e-6-outputs_tmp.jsonl"
+OUTPUT_DIR="/jpfs/qingyu/data-harness/output/dpo_data_0319"
+JUDGE_MODEL="/jpfs/models/DeepSeek-V3.2"
+SCRIPT_DIR="/jpfs/qingyu/data-harness"
 
-# 1. 定义 Pod 列表 (按顺序排列，共16个)
-pods=(
-    "dpo-data-0-6vd8m"
-    "dpo-data-1-qpcgs"
-    "dpo-data-2-sk8rp"
-    "dpo-data-3-gj6wd"
-    "dpo-data-4-hl59h"
-    "dpo-data-5-rp6nz"
-    "dpo-data-6-blg5d"
-    "dpo-data-7-ch5qw"
-)
-# for pod in "${pods[@]}"; do echo "Cleaning $pod..."; kt exec $pod -- pkill -9 -f sglang || echo "No sglang process found on $pod"; done
+# Get training job name from environment variable or first argument
+TRAINING_JOB_NAME="qingyu-64gpu-data"
 
-# 2. 循环启动任务
+if [ -z "$TRAINING_JOB_NAME" ]; then
+    echo "Error: TRAINING_JOB_NAME is not set."
+    echo "Usage: TRAINING_JOB_NAME=<job-name> ./run_dpo_llm_judge.sh"
+    echo "   or: ./run_dpo_llm_judge.sh <job-name>"
+    exit 1
+fi
+
+echo "Using TrainingJob: $TRAINING_JOB_NAME"
+
+# 1. 动态获取 Pod 列表（按 index 排序）
+echo "Fetching pods for training job: $TRAINING_JOB_NAME..."
+mapfile -t pods < <(kubectl get pods | grep "$TRAINING_JOB_NAME" | awk '{print $1}' | sort -V)
+
+if [ ${#pods[@]} -eq 0 ]; then
+    echo "Error: No pods found for training job '$TRAINING_JOB_NAME'"
+    exit 1
+fi
+
+echo "Found ${#pods[@]} pods:"
+for pod in "${pods[@]}"; do
+    echo "  - $pod"
+done
+
+# 2. 清理所有 Pod 上的旧进程
+echo ""
+echo "正在清理所有 Pod 上的 python 和 sglang 进程..."
+for pod in "${pods[@]}"; do
+    kubectl exec $pod -- bash -c "pkill -9 python; pkill -9 sglang; pkill -9 python3" 2>/dev/null &
+done
+wait
+echo "清理完成"
+
+# 3. 启动所有任务（并行，无延迟）
+echo "启动所有任务..."
 for i in "${!pods[@]}"; do
     pod_name=${pods[$i]}
     shard_id=$i
-    
-    echo "正在为 Pod [$pod_name] 分配任务: Shard $shard_id ..."
 
-    # 使用 nohup 或后台运行模式执行，避免 kubectl 断开导致任务终止
-    kt exec $pod_name -- bash -c "pkill sglang && python $SCRIPT_DIR/recipe/llm_judge/inference.py \
-        --input \"$OUTPUT_DIR/shards_16_yuqi_new_data/shard_${shard_id}.jsonl\" \
-        --output \"$OUTPUT_DIR/responses/response_${shard_id}.jsonl\" \
-        --model_path $JUDGE_MODEL \
-        --tp_size 1 \
+    echo "  分配任务: Pod=$pod_name, Shard=$shard_id"
+
+    # 后台并行执行
+    kubectl exec $pod_name -- bash -c "cd $SCRIPT_DIR && python recipe/llm_judge/inference.py \
+        --input '$OUTPUT_DIR/shards_233_yuqi_new_data/shard_${shard_id}.jsonl' \
+        --output '$OUTPUT_DIR/responses/response_${shard_id}.jsonl' \
+        --model_path '$JUDGE_MODEL' \
+        --tp_size 8 \
         --dp_size 8 \
-        --max_tokens 32768
-    " > "log_shard_${shard_id}.log" 2>&1 &
-
-    # 稍微等一秒，避免同时并发请求 kubectl API 过载
-    sleep 1
+        --enable_dp_attention \
+        --max_tokens 32768" &> $OUTPUT_DIR/log_shard_${shard_id}.log &
 done
 
-python $SCRIPT_DIR/recipe/llm_judge/merge_and_extract.py \
-    --response-dir $OUTPUT_DIR/responses \
-    --output $OUTPUT_DIR/scores.jsonl \
-    --failed $OUTPUT_DIR/failed.jsonl \
-    --workers 48
-
-python $SCRIPT_DIR/recipe/llm_judge/analyze_best_worst.py \
-    --input $OUTPUT_DIR/scores.jsonl \
-    --output $OUTPUT_DIR/final.jsonl
-
-python $SCRIPT_DIR/recipe/llm_judge/analyze_scores.py \
-    --scores $OUTPUT_DIR/final.jsonl
+echo ""
+echo "✅ 所有任务已启动！使用以下命令查看 pod 日志："
+echo "   kubectl logs <pod-name> -f"
